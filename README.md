@@ -1,6 +1,5 @@
 # dsh-koein 🎙️
 
-> **こえインプット** — 用说的，别用敲的。
 
 **语音输入插件**，为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 而做：说唤醒词唤醒，或者点一下麦克风直接开口。收音、识别全在本机完成，识别结果填进输入框，你确认后再发。
 
