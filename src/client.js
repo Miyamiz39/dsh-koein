@@ -31,9 +31,11 @@ window.__ModuleLoader__.load({
     const CSS = `
 .koe-mic{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .12s}
 .koe-mic:hover,.koe-mic:focus-visible{background:var(--dsw-alias-fill-l1);color:var(--dsw-alias-label-secondary)}
-.koe-mic[data-status="armed"]{color:#3b82f6}
-.koe-mic[data-status="armed"]:hover{color:#60a5fa}
-.koe-mic[data-status="capturing"]{color:#22c55e;animation:koe-breathe 1.4s ease-in-out infinite}
+.koe-mic[data-status="wake"]{color:#3b82f6}
+.koe-mic[data-status="wake"]:hover{color:#60a5fa}
+.koe-mic[data-status="listen"]{color:#22c55e}
+.koe-mic[data-status="listen"]:hover{color:#4ade80}
+.koe-mic[data-status="hearing"]{color:#22c55e;animation:koe-breathe 1.4s ease-in-out infinite}
 .koe-mic[data-status="connecting"]{color:#9ca3af;opacity:.7}
 .koe-mic[data-status="error"]{color:#d9534f}
 @keyframes koe-breathe{0%,100%{opacity:1}50%{opacity:.45}}
@@ -115,6 +117,22 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     }
 
     /* -------------------------------------------------------------- controller */
+
+    /**
+     * Map a host phase/mode pair onto the indicator colour.
+     *
+     * gray = stopped · green = "speak now and it lands in the composer" ·
+     * blue = "still waiting for the wake word" · red = error (handled apart).
+     * @param {string} phase - idle | armed | capturing | starting.
+     * @param {string} mode - idle | wake | dictate.
+     * @returns {string} the `data-status` value.
+     */
+    function statusFor(phase, mode) {
+      if (phase === 'starting') return 'connecting'
+      if (phase === 'capturing') return 'hearing'
+      if (phase !== 'armed') return 'off'
+      return mode === 'wake' ? 'wake' : 'listen'
+    }
 
     /**
      * Page-wide microphone + socket singleton. One instance serves every
@@ -347,15 +365,11 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           return
         }
         if (frame.type === 'state') {
-          const status =
-            frame.phase === 'capturing'
-              ? 'capturing'
-              : frame.phase === 'starting'
-                ? 'connecting'
-                : frame.phase === 'armed'
-                  ? 'armed'
-                  : 'off'
-          this.#patch({ status, partial: '' })
+          // Colour encodes what speaking would do right now, not which engine is
+          // busy: green = "talk and it lands in the composer", blue = "still
+          // waiting for the wake word".
+          const mode = frame.mode === 'wake' || frame.mode === 'dictate' ? frame.mode : 'idle'
+          this.#patch({ mode, status: statusFor(frame.phase, mode), partial: '' })
           return
         }
         if (frame.type === 'wake') {
@@ -448,13 +462,13 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           ? `语音出错：${controller.error}`
           : status === 'connecting'
             ? '语音：正在加载模型…'
-            : status === 'capturing'
+            : status === 'hearing'
               ? '正在识别…'
-              : status === 'armed'
-                ? controller.dictateEnabled
-                  ? '语音输入待命：直接说话（右键切换唤醒词模式）'
-                  : '唤醒词监听中：说唤醒词即可（单击切换为直接语音输入）'
-                : '语音已关闭（单击开始语音输入，右键开启唤醒词监听）'
+              : status === 'listen'
+                ? '语音输入中：直接说话，内容会进输入框（右键切换唤醒词监听）'
+                : status === 'wake'
+                  ? '唤醒词监听中：说唤醒词即可（单击切换为直接语音输入）'
+                  : '语音已关闭（单击开始语音输入，右键开启唤醒词监听）'
 
       return h(
         'button',
@@ -624,6 +638,8 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
 
     exports.apply = apply
     exports.inject = inject
+    // Exported for the colour-mapping test; the host never calls it.
+    exports.__statusFor = statusFor
     return module.exports
   },
 })

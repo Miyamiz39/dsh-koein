@@ -63,6 +63,15 @@ check('plugin exports inject', Array.isArray(plugin.inject), JSON.stringify(plug
 check('plugin injects the slots service', plugin.inject?.includes('slots'))
 check('plugin exports apply', typeof plugin.apply === 'function')
 
+/* ---------------------------------------------------- the colour contract */
+
+const { __statusFor } = plugin
+check('gray when stopped', __statusFor('idle', 'idle') === 'off')
+check('green after a left click (direct dictation)', __statusFor('armed', 'dictate') === 'listen')
+check('blue after a right click (waiting for the wake word)', __statusFor('armed', 'wake') === 'wake')
+check('green once the wake word is heard', __statusFor('capturing', 'wake') === 'hearing')
+check('green while a dictated utterance is recognised', __statusFor('capturing', 'dictate') === 'hearing')
+
 /* --------------------------------------------------------- apply the plugin */
 
 const registered = []
