@@ -24,9 +24,9 @@ const MODELS = [
     label: '唤醒词模型 (KWS, 中文, 3.3M)',
   },
   {
-    dir: 'sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23',
-    url: `${RELEASE}/asr-models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2`,
-    label: '识别模型 (ASR, 中文流式, 14M)',
+    dir: 'sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05',
+    url: `${RELEASE}/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2`,
+    label: '识别模型 (ASR, 中英双语流式 + 自动标点, int8, 128MB)',
   },
 ]
 

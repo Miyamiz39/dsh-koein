@@ -8,8 +8,11 @@ import z from '@deepseek-ai/schemastery'
 
 /** Default KWS model directory name (Chinese, 3.3M params, open vocabulary). */
 export const DEFAULT_KWS_MODEL = 'sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01'
-/** Default ASR model directory name (Chinese streaming zipformer, 14M params). */
-export const DEFAULT_ASR_MODEL = 'sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23'
+/**
+ * Default ASR model directory name: X-ASR 480ms streaming zipformer transducer,
+ * Chinese + English with automatic punctuation, int8 (~128 MB download).
+ */
+export const DEFAULT_ASR_MODEL = 'sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05'
 
 /** Cordis config schema for the plugin row. */
 export const Config = z.object({

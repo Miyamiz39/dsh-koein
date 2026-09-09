@@ -15,6 +15,10 @@
           - 小鲸小鲸
         # Where the sherpa-onnx models live. Empty = $DSH_HOME/koein-models.
         modelDir: ''
+        # X-ASR 480ms streaming zipformer transducer: Chinese + English with
+        # automatic punctuation, int8. Same architecture as any other streaming
+        # transducer, so a different model is a config change, not a code change.
+        asrModel: sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05
         # false = leave the transcript in the composer for you to review and
         # submit. true = send it the moment the utterance ends.
         autoSend: false

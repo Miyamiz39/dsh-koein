@@ -7,7 +7,7 @@
  */
 import os from 'node:os'
 import path from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_KWS_MODEL } from '../src/config.js'
 
@@ -21,3 +21,18 @@ export const modelRoot =
 
 /** Repository root, for tests that need a stable absolute anchor. */
 export const repoRoot = repo
+
+/**
+ * Pick a test wave from a model directory without hard-coding a file name:
+ * different model releases ship different sample sets.
+ * @param {string} modelDir - a model directory.
+ * @returns {string | null} path of the first wave, or null when there is none.
+ */
+export function firstTestWav(modelDir) {
+  const dir = path.join(modelDir, 'test_wavs')
+  if (!existsSync(dir)) return null
+  const wav = readdirSync(dir)
+    .filter((name) => name.endsWith('.wav'))
+    .sort()[0]
+  return wav === undefined ? null : path.join(dir, wav)
+}

@@ -11,7 +11,7 @@ import { WakeSpotter } from '../src/kws.js'
 import { UtteranceRecognizer } from '../src/asr.js'
 import { VoicePipeline } from '../src/pipeline.js'
 import { modelStatus } from '../src/models.js'
-import { modelRoot } from './model-dir.mjs'
+import { firstTestWav, modelRoot } from './model-dir.mjs'
 
 const require = createRequire(import.meta.url)
 const sherpa = require('sherpa-onnx-node')
@@ -19,6 +19,9 @@ const sherpa = require('sherpa-onnx-node')
 const root = modelRoot
 const kwsDir = path.join(root, DEFAULT_KWS_MODEL)
 const asrDir = path.join(root, DEFAULT_ASR_MODEL)
+// Model releases ship different sample sets; fall back to the wake model's
+// waves so swapping the ASR model never breaks the suite.
+const asrSample = firstTestWav(asrDir) ?? firstTestWav(kwsDir)
 
 const status = modelStatus({ kwsDir, asrDir })
 if (!status.ok) {
@@ -61,7 +64,7 @@ console.log(`wake words accepted: ${JSON.stringify(spotter.accepted)}\n`)
 
 {
   // 0.wav is ordinary Chinese speech; a correct recognizer returns non-empty text.
-  const wave = sherpa.readWave(path.join(asrDir, 'test_wavs', '0.wav'))
+  const wave = sherpa.readWave(asrSample)
   recognizer.begin()
   const chunk = 1600
   let partial = ''
@@ -119,7 +122,7 @@ console.log(`wake words accepted: ${JSON.stringify(spotter.accepted)}\n`)
 /* ------------------------------------------------- 3. dictation needs no wake */
 
 {
-  const wave = sherpa.readWave(path.join(asrDir, 'test_wavs', '0.wav'))
+  const wave = sherpa.readWave(asrSample)
   const events = []
   const pipeline = new VoicePipeline({
     kws: spotter,

@@ -15,7 +15,7 @@ import { apply } from '../src/index.js'
 import { SOCKET_PATH, STATUS_PATH } from '../src/server.js'
 import { DEFAULT_ASR_MODEL, DEFAULT_KWS_MODEL } from '../src/config.js'
 import { modelStatus } from '../src/models.js'
-import { modelRoot } from './model-dir.mjs'
+import { firstTestWav, modelRoot } from './model-dir.mjs'
 
 const require = createRequire(import.meta.url)
 const sherpa = require('sherpa-onnx-node')
@@ -216,8 +216,8 @@ const pcm = toPcm(wave.samples)
 /* ------------------------------------------ 3. dictation needs no wake word */
 
 {
-  // 0.wav is ordinary speech that contains no wake phrase at all.
-  const plain = sherpa.readWave(path.join(root, DEFAULT_ASR_MODEL, 'test_wavs', '0.wav'))
+  // Ordinary speech that contains no wake phrase at all.
+  const plain = sherpa.readWave(firstTestWav(path.join(root, DEFAULT_ASR_MODEL)) ?? firstTestWav(path.join(root, DEFAULT_KWS_MODEL)))
   const { ctx, routes, disposers } = fakeContext()
   apply(ctx, { wakeWords: ['法国'], modelDir: root, injectMode: 'composer', beep: false, stayAwakeMs: 0 })
   const server = await serve(routes)
