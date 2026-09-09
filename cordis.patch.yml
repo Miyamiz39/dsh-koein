@@ -15,6 +15,6 @@
           - 小鲸小鲸
         # Where the sherpa-onnx models live. Empty = $DSH_HOME/koein-models.
         modelDir: ''
-        # Send the transcript the moment the utterance ends (false = leave it in
-        # the composer for you to review and submit).
-        autoSend: true
+        # false = leave the transcript in the composer for you to review and
+        # submit. true = send it the moment the utterance ends.
+        autoSend: false

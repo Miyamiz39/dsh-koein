@@ -239,6 +239,12 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           this.context = null
         }
         if (this.socket !== null) {
+          // Drop the close handler first: tearing down on purpose must not be
+          // reported as "host socket closed", and it must not overwrite a real
+          // error message with that one.
+          this.socket.onclose = null
+          this.socket.onerror = null
+          this.socket.onmessage = null
           try {
             this.socket.close()
           } catch {
