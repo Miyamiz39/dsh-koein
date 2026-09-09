@@ -151,10 +151,12 @@ async function drive(url, pcm, options = {}) {
   })
   if (options.sessionId) socket.send(JSON.stringify({ type: 'hello', sessionId: options.sessionId }))
 
-  // The engine runs in a forked child and loads ~30 MB of models on first use;
-  // audio sent before it is ready is dropped, exactly as it would be for a user
-  // who speaks too early.
-  await waitFor(frames, (f) => f.type === 'state' && f.state === 'listening', 90000, 'engine readiness')
+  // The engine runs in a forked child and loads ~30 MB of models on first use.
+  // Wait until it has answered at least once, then request the mode under test.
+  await waitFor(frames, (f) => f.type === 'state' && f.phase !== 'starting', 90000, 'engine readiness')
+  const dictate = options.mode === 'dictate'
+  socket.send(JSON.stringify({ type: 'mode', wake: !dictate, dictate }))
+  await waitFor(frames, (f) => f.type === 'state' && f.phase === 'armed', 30000, 'armed phase')
 
   for (let i = 0; i < pcm.length; i += 3200) socket.send(pcm.subarray(i, i + 3200))
   const silence = Buffer.alloc(3200 * 20)
@@ -211,7 +213,25 @@ const pcm = toPcm(wave.samples)
   check('injected message is frozen', Object.isFrozen(message) && Object.isFrozen(message.content))
 }
 
-/* ---------------------------------------------------- 3. status route answers */
+/* ------------------------------------------ 3. dictation needs no wake word */
+
+{
+  // 0.wav is ordinary speech that contains no wake phrase at all.
+  const plain = sherpa.readWave(path.join(root, DEFAULT_ASR_MODEL, 'test_wavs', '0.wav'))
+  const { ctx, routes, disposers } = fakeContext()
+  apply(ctx, { wakeWords: ['法国'], modelDir: root, injectMode: 'composer', beep: false, stayAwakeMs: 0 })
+  const server = await serve(routes)
+  const frames = await drive(server.url, toPcm(plain.samples), { sessionId: 'session-x', mode: 'dictate' })
+  await server.close()
+  for (const dispose of disposers) dispose()
+
+  const final = frames.find((f) => f.type === 'final')
+  check('dictation never runs the wake spotter', !frames.some((f) => f.type === 'wake'))
+  check('dictation produces a transcript', final !== undefined && final.text.length > 0, JSON.stringify(final?.text))
+  check('dictation hands the text to the composer', final?.injected === 'composer', `injected=${final?.injected}`)
+}
+
+/* ---------------------------------------------------- 4. status route answers */
 
 {
   const { ctx, routes, disposers } = fakeContext()

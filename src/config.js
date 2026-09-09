@@ -44,8 +44,8 @@ export const Config = z.object({
 
   autoSend: z
     .boolean()
-    .default(true)
-    .description('识别完成即发送。false = 只把文字放进输入框，由你确认后发送。'),
+    .default(false)
+    .description('识别完成即发送。默认 false = 只把文字放进输入框，由你确认后发送。'),
   injectMode: z
     .union(['composer', 'agent'])
     .default('composer')

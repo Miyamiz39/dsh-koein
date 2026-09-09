@@ -92,14 +92,14 @@ check('styles effect is owned', effects.includes('dsh-koein: styles'), effects.j
 check('stylesheet element was created', created.length === 1)
 
 const targets = registered.map((entry) => entry.options.name)
-check('registers the composer control', targets.includes('conversation.input.left'), targets.join(', '))
-check('registers the composer status strip', targets.includes('conversation.input.dock'))
+check('registers the microphone beside the send button', targets.includes('conversation.input.right'), targets.join(', '))
+check('no separate status indicator is registered', !targets.includes('conversation.input.left') && !targets.includes('conversation.input.dock'))
 check('registers the settings page', targets.includes('settings.section'))
 check('every registration has an id', registered.every((entry) => typeof entry.options.id === 'string'))
 check('every registration has a component', registered.every((entry) => typeof entry.component === 'function'))
 check(
   'slot injections wait for the same slots it registers into',
-  injected.length === 3 && injected.every((name) => targets.includes(name)),
+  injected.length === 2 && injected.every((name) => targets.includes(name)),
   injected.join(', '),
 )
 
@@ -109,28 +109,18 @@ check('settings page carries a label', typeof settings?.options.label === 'strin
 /* ------------------------------------------- components render under real React */
 
 const { renderToStaticMarkup } = require('react-dom/server')
-const button = registered.find((entry) => entry.options.name === 'conversation.input.left')
-const strip = registered.find((entry) => entry.options.name === 'conversation.input.dock')
+const mic = registered.find((entry) => entry.options.name === 'conversation.input.right')
 const settingsPage = registered.find((entry) => entry.options.name === 'settings.section')
 
 try {
-  const html = renderToStaticMarkup(react.createElement(button.component, { sessionId: 'session-1' }))
-  check('composer control renders a toggle', html.includes('koe-btn') && html.includes('语音唤醒'), html.slice(0, 90))
-} catch (error) {
-  check('composer control renders a toggle', false, error.message)
-}
-
-try {
-  // The strip is inert while the controller is stopped, which is its initial state.
-  const html = renderToStaticMarkup(
-    react.createElement(strip.component, {
-      sessionId: 'session-1',
-      inputActions: { setDraft() {}, submit() {} },
-    }),
+  const html = renderToStaticMarkup(react.createElement(mic.component, { sessionId: 'session-1' }))
+  check(
+    'microphone renders in the off state',
+    html.includes('koe-mic') && html.includes('data-status="off"') && html.includes('<svg'),
+    html.slice(0, 110),
   )
-  check('status strip stays hidden while stopped', html === '', JSON.stringify(html))
 } catch (error) {
-  check('status strip stays hidden while stopped', false, error.message)
+  check('microphone renders in the off state', false, error.message)
 }
 
 try {

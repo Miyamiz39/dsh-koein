@@ -29,19 +29,14 @@ window.__ModuleLoader__.load({
 
     const STYLE_ID = 'dsh-koein/styles'
     const CSS = `
-.koe-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}
-.koe-btn:hover,.koe-btn:focus-visible{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-fill-l1)}
-.koe-btn[data-on="true"]{color:var(--dsw-alias-label-primary)}
-.koe-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--dsw-alias-label-tertiary)}
-.koe-btn[data-state="listening"] .koe-dot{background:#3ba55d;box-shadow:0 0 0 0 rgba(59,165,93,.55);animation:koe-pulse 2s infinite}
-.koe-btn[data-state="awake"] .koe-dot{background:#e8a33d}
-.koe-btn[data-state="error"] .koe-dot{background:#d9534f}
-.koe-btn[data-state="connecting"] .koe-dot{background:#7a7a7a}
-@keyframes koe-pulse{0%{box-shadow:0 0 0 0 rgba(59,165,93,.5)}70%{box-shadow:0 0 0 7px rgba(59,165,93,0)}100%{box-shadow:0 0 0 0 rgba(59,165,93,0)}}
-.koe-strip{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:6px 10px;border-radius:10px;background:var(--dsw-alias-fill-l1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-.koe-strip b{color:var(--dsw-alias-label-primary);font-weight:500}
-.koe-strip .koe-partial{opacity:.75}
-.koe-strip .koe-err{color:#d9534f}
+.koe-mic{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .12s}
+.koe-mic:hover,.koe-mic:focus-visible{background:var(--dsw-alias-fill-l1);color:var(--dsw-alias-label-secondary)}
+.koe-mic[data-status="armed"]{color:#3b82f6}
+.koe-mic[data-status="armed"]:hover{color:#60a5fa}
+.koe-mic[data-status="capturing"]{color:#22c55e;animation:koe-breathe 1.4s ease-in-out infinite}
+.koe-mic[data-status="connecting"]{color:#9ca3af;opacity:.7}
+.koe-mic[data-status="error"]{color:#d9534f}
+@keyframes koe-breathe{0%,100%{opacity:1}50%{opacity:.45}}
 .koe-page{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
 .koe-page h3{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .koe-page code{font-family:var(--dsw-font-mono);font-size:12px;background:var(--dsw-alias-fill-l2);padding:1px 5px;border-radius:5px;color:var(--dsw-alias-label-primary)}
@@ -128,12 +123,14 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     class KoeinController {
       constructor() {
         this.status = 'off'
+        this.wakeEnabled = false
+        this.dictateEnabled = false
         this.keyword = ''
         this.partial = ''
         this.lastFinal = ''
         this.error = ''
         this.ready = null
-        this.autoSend = true
+        this.autoSend = false
         this.sessionId = ''
         this.listeners = new Set()
         this.finalListeners = new Set()
@@ -174,20 +171,49 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
         }
       }
 
-      /** Connect the socket and open the microphone. */
+      /**
+       * Enable or disable one of the two input modes and reconcile the hardware.
+       * @param {{ wakeEnabled?: boolean, dictateEnabled?: boolean }} patch - mode change.
+       */
+      async setMode(patch) {
+        this.#patch(patch)
+        if (!this.wakeEnabled && !this.dictateEnabled) {
+          this.#patch({ error: '' })
+          await this.stop()
+          return
+        }
+        if (this.socket === null) await this.start()
+        else this.#sendMode()
+      }
+
+      /** Left click: toggle direct speech input, no wake word needed. */
+      toggleDictate() {
+        void this.setMode({ dictateEnabled: !this.dictateEnabled })
+      }
+
+      /** Right click: toggle wake-word listening. */
+      toggleWake() {
+        void this.setMode({ wakeEnabled: !this.wakeEnabled })
+      }
+
+      /** Open the microphone and the socket. */
       async start() {
-        if (this.status === 'connecting' || this.status === 'listening' || this.status === 'awake') return
+        if (this.status === 'connecting') return
         this.#patch({ status: 'connecting', error: '', keyword: '', partial: '', lastFinal: '' })
         try {
           await this.#openMic()
           await this.#openSocket()
-          // The engine runs in a separate process and loads its models on first
-          // use; the host sends `state: listening` once it is actually ready.
-          this.#patch({ status: 'connecting' })
+          this.#sendMode()
         } catch (error) {
           this.#patch({ status: 'error', error: String((error && error.message) || error) })
           await this.stop()
         }
+      }
+
+      /** Tell the host which input modes this page wants. */
+      #sendMode() {
+        if (this.socket === null || this.socket.readyState !== 1) return
+        this.socket.send(JSON.stringify({ type: 'mode', wake: this.wakeEnabled, dictate: this.dictateEnabled }))
       }
 
       /** Release the microphone and the socket. */
@@ -221,13 +247,8 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           this.socket = null
         }
         this.resampler = null
-        this.#patch({ status: 'off', partial: '', keyword: '' })
-      }
-
-      /** Toggle between running and stopped. */
-      toggle() {
-        if (this.status === 'off' || this.status === 'error') void this.start()
-        else void this.stop()
+        // A failed start keeps its error visible; a clean teardown is just "off".
+        this.#patch({ status: this.error ? 'error' : 'off', partial: '', keyword: '' })
       }
 
       /** Abandon the utterance in flight. */
@@ -320,7 +341,14 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           return
         }
         if (frame.type === 'state') {
-          const status = frame.state === 'awake' ? 'awake' : frame.state === 'starting' ? 'connecting' : 'listening'
+          const status =
+            frame.phase === 'capturing'
+              ? 'capturing'
+              : frame.phase === 'starting'
+                ? 'connecting'
+                : frame.phase === 'armed'
+                  ? 'armed'
+                  : 'off'
           this.#patch({ status, partial: '' })
           return
         }
@@ -333,7 +361,7 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           return
         }
         if (frame.type === 'error') {
-          this.#patch({ error: frame.message })
+          this.#patch({ error: frame.message, status: 'error' })
           return
         }
         if (frame.type === 'final') {
@@ -347,55 +375,44 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
 
     /* -------------------------------------------------------------- components */
 
-    /**
-     * Composer-left microphone toggle: the plugin's primary control.
-     * @param {object} props - runtime slot props.
-     * @returns {import('react').ReactElement} the control.
-     */
-    function KoeinButton(props) {
-      const [, force] = React.useState(0)
-      React.useEffect(() => controller.subscribe(() => force((n) => n + 1)), [])
-      React.useEffect(() => {
-        if (props.sessionId) controller.setSession(String(props.sessionId))
-      }, [props.sessionId])
-
-      const on = controller.status === 'listening' || controller.status === 'awake'
-      const label =
-        controller.status === 'off'
-          ? '语音唤醒'
-          : controller.status === 'connecting'
-            ? '连接中…'
-            : controller.status === 'awake'
-              ? '聆听中…'
-              : controller.status === 'error'
-                ? '语音出错'
-                : '语音监听中'
-
+    /** Inline microphone glyph. */
+    function MicIcon() {
       return h(
-        'button',
+        'svg',
         {
-          type: 'button',
-          className: 'koe-btn',
-          'data-on': String(on),
-          'data-state': controller.status,
-          title: on ? '点击停止语音唤醒' : '点击开启语音唤醒（常驻本地监听，不上传音频）',
-          onClick: () => controller.toggle(),
+          width: 16,
+          height: 16,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 2,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': 'true',
         },
-        h('span', { className: 'koe-dot' }),
-        h('span', null, label),
+        h('path', { d: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z' }),
+        h('path', { d: 'M19 10v2a7 7 0 0 1-14 0v-2' }),
+        h('line', { x1: 12, y1: 19, x2: 12, y2: 22 }),
       )
     }
 
     /**
-     * Composer-dock status strip: shows what the engines heard and performs the
-     * composer injection when the host asks this half to.
+     * The single voice control, sitting left of the send button.
+     *
+     *   left click   toggle direct speech input (no wake word needed)
+     *   right click  toggle wake-word listening
+     *
+     * Colour is the state: gray = off, blue = waiting for you, green = capturing.
      * @param {object} props - runtime slot props.
-     * @returns {import('react').ReactElement | null} the strip, or null when idle.
+     * @returns {import('react').ReactElement} the control.
      */
-    function KoeinStatus(props) {
+    function KoeinMic(props) {
       const [, force] = React.useState(0)
       const [pending, setPending] = React.useState(null)
       React.useEffect(() => controller.subscribe(() => force((n) => n + 1)), [])
+      React.useEffect(() => {
+        if (props.sessionId) controller.setSession(String(props.sessionId))
+      }, [props.sessionId])
       React.useEffect(
         () =>
           controller.onFinal((text, injected) => {
@@ -419,22 +436,36 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
         return () => cancelAnimationFrame(id)
       }, [pending])
 
-      if (controller.status === 'off') return null
+      const status = controller.status
+      const title =
+        status === 'error'
+          ? `语音出错：${controller.error}`
+          : status === 'connecting'
+            ? '语音：正在加载模型…'
+            : status === 'capturing'
+              ? '正在识别…'
+              : status === 'armed'
+                ? controller.dictateEnabled
+                  ? '语音输入待命：直接说话（右键切换唤醒词模式）'
+                  : '唤醒词监听中：说唤醒词即可（单击切换为直接语音输入）'
+                : '语音已关闭（单击开始语音输入，右键开启唤醒词监听）'
 
-      const parts = []
-      if (controller.status === 'error' || controller.error) {
-        parts.push(h('span', { className: 'koe-err', key: 'e' }, `语音唤醒：${controller.error}`))
-      } else if (controller.status === 'connecting') {
-        parts.push(h('span', { key: 'c' }, '语音唤醒：正在打开麦克风…'))
-      } else if (controller.status === 'awake') {
-        parts.push(h('b', { key: 'a' }, `已唤醒（${controller.keyword}）`), h('span', { key: 'a2' }, '我在听…'))
-      } else {
-        parts.push(h('span', { key: 'l' }, '语音监听中，说唤醒词即可开口'))
-      }
-      if (controller.partial) parts.push(h('span', { className: 'koe-partial', key: 'p' }, controller.partial))
-      else if (controller.lastFinal) parts.push(h('span', { className: 'koe-partial', key: 'f' }, controller.lastFinal))
-
-      return h('div', { className: 'koe-strip' }, parts)
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'koe-mic',
+          'data-status': status,
+          'aria-label': title,
+          title,
+          onClick: () => controller.toggleDictate(),
+          onContextMenu: (event) => {
+            event.preventDefault()
+            controller.toggleWake()
+          },
+        },
+        h(MicIcon, null),
+      )
     }
 
     /**
@@ -571,16 +602,10 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     function apply(ctx) {
       ctx.effect(installStyles, 'dsh-koein: styles')
 
-      ctx.slots.inject('conversation.input.left', () =>
+      ctx.slots.inject('conversation.input.right', () =>
         ctx.slots.register(
-          { name: 'conversation.input.left', id: 'koein', order: 12 },
-          KoeinButton,
-        ),
-      )
-      ctx.slots.inject('conversation.input.dock', () =>
-        ctx.slots.register(
-          { name: 'conversation.input.dock', id: 'koein-status', order: 12 },
-          KoeinStatus,
+          { name: 'conversation.input.right', id: 'koein-mic', order: 8 },
+          KoeinMic,
         ),
       )
       ctx.slots.inject('settings.section', () =>

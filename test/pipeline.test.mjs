@@ -94,6 +94,7 @@ console.log(`wake words accepted: ${JSON.stringify(spotter.accepted)}\n`)
   })
 
   const chunk = 1600
+  pipeline.arm('wake')
   for (let i = 0; i < wave.samples.length; i += chunk) {
     pipeline.push(toPcm(wave.samples.subarray(i, i + chunk)))
   }
@@ -105,17 +106,51 @@ console.log(`wake words accepted: ${JSON.stringify(spotter.accepted)}\n`)
   }
 
   const wake = events.find((event) => event.type === 'wake')
-  const states = events.filter((event) => event.type === 'state').map((event) => event.state)
+  const phases = events.filter((event) => event.type === 'state').map((event) => event.phase)
   const finals = events.filter((event) => event.type === 'final')
 
   console.log(`events: ${events.map((event) => event.type).join(', ')}`)
   check('wake phrase fires', wake !== undefined, wake ? `keyword=${wake.keyword}` : 'no wake event')
-  check('state machine enters awake', states.includes('awake'), states.join(' -> '))
+  check('phase machine arms then captures', phases.includes('armed') && phases.includes('capturing'), phases.join(' -> '))
   check('pipeline settles an utterance', finals.length > 0)
   if (finals.length > 0) console.log(`final -> ${JSON.stringify(finals[0].text)} (reason=${finals[0].reason})`)
 }
 
-/* ------------------------------------------------------ 3. silence never wakes */
+/* ------------------------------------------------- 3. dictation needs no wake */
+
+{
+  const wave = sherpa.readWave(path.join(asrDir, 'test_wavs', '0.wav'))
+  const events = []
+  const pipeline = new VoicePipeline({
+    kws: spotter,
+    asr: recognizer,
+    config: {
+      energyThreshold: 0.012,
+      silenceMs: 800,
+      onsetTimeoutMs: 4000,
+      maxUtteranceMs: 20000,
+      minUtteranceMs: 300,
+      stayAwakeMs: 0,
+    },
+    emit: (event) => events.push(event),
+  })
+  pipeline.arm('dictate')
+  const chunk = 1600
+  for (let i = 0; i < wave.samples.length; i += chunk) {
+    pipeline.push(toPcm(wave.samples.subarray(i, i + chunk)))
+  }
+  const silence = new Float32Array(16000 * 2)
+  for (let i = 0; i < silence.length; i += chunk) {
+    pipeline.push(toPcm(silence.subarray(i, i + chunk)))
+  }
+
+  const final = events.find((event) => event.type === 'final')
+  check('dictation transcribes without any wake word', final !== undefined && final.text.length > 0, JSON.stringify(final?.text))
+  check('dictation never runs the wake spotter', !events.some((event) => event.type === 'wake'))
+  pipeline.disarm()
+}
+
+/* ------------------------------------------------------ 4. silence never wakes */
 
 {
   const silence = new Float32Array(16000 * 2)
@@ -133,6 +168,7 @@ console.log(`wake words accepted: ${JSON.stringify(spotter.accepted)}\n`)
     },
     emit: (event) => events.push(event),
   })
+  pipeline.arm('wake')
   for (let i = 0; i < silence.length; i += 1600) {
     pipeline.push(toPcm(silence.subarray(i, i + 1600)))
   }

@@ -95,12 +95,24 @@ export function apply(ctx, config) {
         if (keywordReport.rejected.length > 0) {
           logger?.warn?.(`dsh-koein: unusable wake words ${JSON.stringify(keywordReport.rejected)}`)
         }
-        if (active !== null) send(active.socket, { type: 'state', state: 'listening' })
+        applyActiveMode()
       })
       .catch((error) => {
         logger?.warn?.(`dsh-koein: engine start failed: ${error.message}`)
       })
     return engine
+  }
+
+  /**
+   * Arm the engine to match the active connection's requested modes.
+   * Dictation wins over wake-word listening: they share one audio stream.
+   */
+  function applyActiveMode() {
+    if (active === null || supervisor === null || !supervisor.alive) return
+    const { connection } = active
+    if (connection.dictate) supervisor.arm('dictate')
+    else if (connection.wake) supervisor.arm('wake')
+    else supervisor.disarm()
   }
 
   /**
@@ -122,20 +134,31 @@ export function apply(ctx, config) {
 
     const connection = {
       sessionId: '',
+      wake: false,
+      dictate: false,
       feed(data) {
         supervisor?.push(data)
       },
-      setSession(id) {
-        connection.sessionId = id
-      },
-      cancel() {
-        supervisor?.cancel()
+      frame(message) {
+        if (message.type === 'hello') {
+          connection.sessionId = String(message.sessionId || '')
+          return
+        }
+        if (message.type === 'cancel') {
+          supervisor?.cancel()
+          return
+        }
+        if (message.type === 'mode') {
+          connection.wake = message.wake === true
+          connection.dictate = message.dictate === true
+          applyActiveMode()
+        }
       },
     }
 
     active = { socket, connection }
     const engine = ensureSupervisor()
-    if (!engine.alive) send(socket, { type: 'state', state: 'starting' })
+    if (!engine.alive) send(socket, { type: 'state', phase: 'starting', mode: 'idle' })
     return connection
   }
 

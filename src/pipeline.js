@@ -1,15 +1,14 @@
 /**
  * The per-connection voice state machine.
  *
- * One audio stream, two engines, and a wake hit as the switch between them:
+ * Two ways in, one audio stream:
  *
- *   listening  --KWS hit-->  awake  --endpoint-->  final  --stayAwake?-->  awake
- *       ^                                                       |
- *       +--------------------- idle / timeout -----------------+
+ *   wake mode     listening --KWS hit--> awake --endpoint--> final --> listening
+ *   dictate mode  awake --endpoint--> final --> awake (continuous)
  *
- * Only the KWS engine runs while listening; ASR only ever sees the speech that
- * follows a wake hit, so the expensive model stays idle the vast majority of
- * the time.
+ * Only the KWS engine runs while waiting for a wake word, so the expensive ASR
+ * model stays idle until it is actually needed. In dictate mode the wake
+ * spotter is not fed at all — the user already said they want to talk.
  * @module dsh-koein/pipeline
  */
 import { SAMPLE_RATE } from './constants.js'
@@ -35,7 +34,8 @@ export function pcmToFloat32(bytes) {
 }
 
 /**
- * Drives one browser audio connection through wake → utterance → transcript.
+ * Drives one browser audio connection through wake → utterance → transcript,
+ * or through continuous dictation when no wake word is wanted.
  */
 export class VoicePipeline {
   /**
@@ -50,7 +50,10 @@ export class VoicePipeline {
     this.asr = options.asr
     this.config = options.config
     this.emit = options.emit
-    this.state = 'listening'
+    /** `idle`, `wake` (KWS armed), or `dictate` (ASR always armed). */
+    this.mode = 'idle'
+    /** `idle`, `listening` (KWS), or `awake` (ASR). */
+    this.state = 'idle'
     this.endpointer = new Endpointer({
       sampleRate: SAMPLE_RATE,
       energyThreshold: Number(this.config.energyThreshold),
@@ -61,9 +64,8 @@ export class VoicePipeline {
     })
     this.preRoll = []
     this.preRollMs = 0
-    this.tailMs = 0
     this.partial = ''
-    this.emit({ type: 'state', state: this.state })
+    this.#emitPhase()
   }
 
   /**
@@ -71,10 +73,38 @@ export class VoicePipeline {
    * @param {Buffer | Uint8Array} bytes - raw little-endian PCM at {@link SAMPLE_RATE}.
    */
   push(bytes) {
+    if (this.mode === 'idle') return
     const samples = pcmToFloat32(bytes)
     if (samples.length === 0) return
     if (this.state === 'listening') this.#listen(samples)
     else if (this.state === 'awake') this.#capture(samples)
+  }
+
+  /**
+   * Start listening, either for a wake word or for direct speech.
+   * @param {'wake' | 'dictate'} mode - what to arm.
+   */
+  arm(mode) {
+    if (mode === 'dictate') {
+      this.mode = 'dictate'
+      // No onset deadline: the user may think for a while before talking.
+      this.#beginUtterance(Number.POSITIVE_INFINITY)
+      return
+    }
+    this.mode = 'wake'
+    this.#beginWakeListening()
+  }
+
+  /** Stop listening entirely and release the engines' streams. */
+  disarm() {
+    if (this.state === 'awake') this.asr.finish()
+    this.mode = 'idle'
+    this.state = 'idle'
+    this.partial = ''
+    this.preRoll = []
+    this.preRollMs = 0
+    this.kws.reset()
+    this.#emitPhase()
   }
 
   /**
@@ -89,15 +119,11 @@ export class VoicePipeline {
   }
 
   /**
-   * Transition into the ASR phase.
+   * Transition into the ASR phase after a wake hit.
    * @param {string} keyword - the phrase that fired.
    */
   #wake(keyword) {
-    this.state = 'awake'
-    this.partial = ''
-    this.tailMs = 0
-    this.asr.begin()
-    this.endpointer.reset()
+    this.#beginUtterance(Number(this.config.onsetTimeoutMs))
     // Seed the recognizer with the pre-roll so the command's first phoneme is
     // not clipped. It is far shorter than the wake phrase, so ASR does not
     // transcribe the wake word itself.
@@ -105,7 +131,28 @@ export class VoicePipeline {
     this.preRoll = []
     this.preRollMs = 0
     this.emit({ type: 'wake', keyword })
-    this.emit({ type: 'state', state: 'awake' })
+  }
+
+  /**
+   * Open a fresh recognition stream and wait for speech.
+   * @param {number} onsetTimeoutMs - how long to wait before giving up.
+   */
+  #beginUtterance(onsetTimeoutMs) {
+    this.state = 'awake'
+    this.partial = ''
+    this.asr.begin()
+    this.endpointer.reset(onsetTimeoutMs)
+    this.#emitPhase()
+  }
+
+  /** Return to wake-word-only listening. */
+  #beginWakeListening() {
+    this.state = 'listening'
+    this.partial = ''
+    this.preRoll = []
+    this.preRollMs = 0
+    this.kws.reset()
+    this.#emitPhase()
   }
 
   /**
@@ -119,6 +166,8 @@ export class VoicePipeline {
       this.partial = text
       this.emit({ type: 'partial', text })
     }
+    // The first voiced block flips the indicator from "armed" to "capturing".
+    if (decision.started) this.#emitPhase()
     if (decision.outcome === 'timeout') {
       this.#settle('timeout')
       return
@@ -139,28 +188,19 @@ export class VoicePipeline {
   #settle(reason) {
     const text = this.asr.finish().trim()
     this.emit({ type: 'final', text, reason })
+    if (this.mode === 'dictate') {
+      // Continuous dictation: keep the stream open for the next sentence.
+      this.#beginUtterance(Number.POSITIVE_INFINITY)
+      return
+    }
     const stayAwakeMs = Number(this.config.stayAwakeMs)
     if (text && stayAwakeMs > 0) {
       // Keep the same engine hot for a follow-up; a second wake word would be
       // pointless within the same breath.
-      this.state = 'awake'
-      this.partial = ''
-      this.asr.begin()
-      this.endpointer.reset(stayAwakeMs)
-      this.emit({ type: 'state', state: 'awake' })
+      this.#beginUtterance(stayAwakeMs)
       return
     }
-    this.#sleep()
-  }
-
-  /** Return to wake-word-only listening. */
-  #sleep() {
-    this.state = 'listening'
-    this.partial = ''
-    this.preRoll = []
-    this.preRollMs = 0
-    this.kws.reset()
-    this.emit({ type: 'state', state: 'listening' })
+    this.#beginWakeListening()
   }
 
   /**
@@ -177,22 +217,27 @@ export class VoicePipeline {
     }
   }
 
-  /** Abort the current utterance and go back to listening. */
+  /** Publish the current indicator phase: idle, armed, or capturing. */
+  #emitPhase() {
+    const phase =
+      this.mode === 'idle' ? 'idle' : this.state === 'awake' && this.endpointer.started ? 'capturing' : 'armed'
+    this.emit({ type: 'state', phase, mode: this.mode })
+  }
+
+  /** Abort the current utterance without publishing a transcript. */
   cancel() {
-    if (this.state === 'awake') {
-      this.asr.finish()
-      this.#sleep()
-    }
+    if (this.state !== 'awake') return
+    this.asr.finish()
+    if (this.mode === 'dictate') this.#beginUtterance(Number.POSITIVE_INFINITY)
+    else this.#beginWakeListening()
   }
 
   /**
-   * Drop any in-flight utterance and return to wake-word-only listening.
-   * Called when another browser takes over the microphone.
+   * Drop any in-flight utterance. Called when another browser takes over the
+   * microphone; the new connection arms the mode it wants.
    */
   reset() {
-    if (this.state === 'listening') return
-    if (this.state === 'awake') this.asr.finish()
-    this.#sleep()
+    this.disarm()
   }
 }
 

@@ -135,6 +135,19 @@ export class EngineSupervisor {
     if (this.alive) this.child.send({ t: 'cancel' })
   }
 
+  /**
+   * Start listening for a wake word or for direct speech.
+   * @param {'wake' | 'dictate'} mode - what to arm.
+   */
+  arm(mode) {
+    if (this.alive) this.child.send({ t: 'arm', mode })
+  }
+
+  /** Stop listening and release the engines' streams. */
+  disarm() {
+    if (this.alive) this.child.send({ t: 'disarm' })
+  }
+
   /** Return the pipeline to wake-word-only listening. */
   reset() {
     if (this.alive) this.child.send({ t: 'reset' })

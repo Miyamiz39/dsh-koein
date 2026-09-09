@@ -53,8 +53,7 @@ export function registerRoutes(ctx, options) {
           } catch {
             return
           }
-          if (frame && frame.type === 'hello') connection.setSession(String(frame.sessionId || ''))
-          else if (frame && frame.type === 'cancel') connection.cancel()
+          if (frame && typeof frame.type === 'string') connection.frame(frame)
         })
         ws.on('close', () => options.detach(connection))
         ws.on('error', () => options.detach(connection))

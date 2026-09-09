@@ -89,6 +89,8 @@ process.on('message', (frame) => {
   try {
     if (frame.t === 'start') start(frame.config)
     else if (frame.t === 'audio') pipeline?.push(frame.pcm)
+    else if (frame.t === 'arm') pipeline?.arm(frame.mode)
+    else if (frame.t === 'disarm') pipeline?.disarm()
     else if (frame.t === 'cancel') pipeline?.cancel()
     else if (frame.t === 'reset') pipeline?.reset()
     else if (frame.t === 'stop') {
