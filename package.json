@@ -1,0 +1,68 @@
+{
+  "name": "dsh-koein",
+  "version": "0.1.0",
+  "description": "Wake-word voice input for DeepSeek Harness: an always-on, low-power keyword spotter wakes the agent, then local ASR turns what you say next into a submitted message. No API key, no cloud, no typing.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-plugins",
+    "cordis",
+    "cordis-plugin",
+    "deepseek-harness",
+    "voice",
+    "wake-word",
+    "keyword-spotting",
+    "kws",
+    "asr",
+    "sherpa-onnx"
+  ],
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "src",
+    "tools",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "pinyin-pro": "^3.27.0",
+    "sherpa-onnx-node": "^1.13.7",
+    "ws": "^8.21.3"
+  },
+  "scripts": {
+    "models": "node tools/download-models.mjs",
+    "probe": "node tools/probe-wake-word.mjs",
+    "test": "node test/run-all.mjs"
+  },
+  "devDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

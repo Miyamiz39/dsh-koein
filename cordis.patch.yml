@@ -1,0 +1,20 @@
+# dsh-koein bundle patch: one row inserting the wake-word voice plugin.
+#
+# A patch replaces the targeted row's whole `config` rather than merging into it,
+# so the config below is the complete configuration for this row. Edit the values
+# in place (or override the whole row from your profile cordis.patch.yml).
+
+- insert:
+    - id: koein
+      name: dsh-koein
+      config:
+        # Say one of these to wake the agent. Custom keywords are tokenized at
+        # startup from the KWS model's own vocabulary, so any Chinese phrase works.
+        wakeWords:
+          - 你好小鲸
+          - 小鲸小鲸
+        # Where the sherpa-onnx models live. Empty = $DSH_HOME/koein-models.
+        modelDir: ''
+        # Send the transcript the moment the utterance ends (false = leave it in
+        # the composer for you to review and submit).
+        autoSend: true
