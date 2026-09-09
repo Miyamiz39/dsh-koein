@@ -569,7 +569,7 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
         h(
           'div',
           null,
-          '唤醒词常驻本地监听，命中后自动收音、本地识别并发送。音频不出本机；识别与唤醒均由本机 sherpa-onnx 推理，无需 API Key。',
+          '单击麦克风开始直接语音输入，右键单击切换唤醒词监听。识别结果填进输入框，你确认后再发送。音频不出本机；识别与唤醒均由本机 sherpa-onnx 推理，无需 API Key。',
         ),
         ...rows,
         ready
