@@ -72,6 +72,15 @@ check('blue after a right click (waiting for the wake word)', __statusFor('armed
 check('green once the wake word is heard', __statusFor('capturing', 'wake') === 'hearing')
 check('green while a dictated utterance is recognised', __statusFor('capturing', 'dictate') === 'hearing')
 
+/* ------------------------------------------------------- the draft merge */
+
+const { __joinDraft } = plugin
+check('appends after CJK without a space', __joinDraft('你好', '世界') === '你好世界')
+check('appends after Latin with a space', __joinDraft('hello', 'world') === 'hello world')
+check('keeps CJK punctuation tight', __joinDraft('你好', '，然后呢') === '你好，然后呢')
+check('empty draft takes the transcript verbatim', __joinDraft('', '你好') === '你好')
+check('does not double an existing trailing space', __joinDraft('hello ', 'world') === 'hello world')
+
 /* --------------------------------------------------------- apply the plugin */
 
 const registered = []
@@ -122,7 +131,18 @@ const mic = registered.find((entry) => entry.options.name === 'conversation.inpu
 const settingsPage = registered.find((entry) => entry.options.name === 'settings.section')
 
 try {
-  const html = renderToStaticMarkup(react.createElement(mic.component, { sessionId: 'session-1' }))
+  // A slot hands `useInput` to the component as a hook; the stub behaves as one.
+  const useInput = (selector) => {
+    const [state] = react.useState({ draft: '' })
+    return selector(state)
+  }
+  const html = renderToStaticMarkup(
+    react.createElement(mic.component, {
+      sessionId: 'session-1',
+      useInput,
+      inputActions: { setDraft() {}, submit() {} },
+    }),
+  )
   check(
     'microphone renders in the off state',
     html.includes('koe-mic') && html.includes('data-status="off"') && html.includes('<svg'),

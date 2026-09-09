@@ -135,6 +135,23 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     }
 
     /**
+     * Append a transcript to the existing draft.
+     *
+     * `inputActions.setDraft` replaces the whole draft, so consecutive
+     * utterances must be joined here. CJK joins without a space; Latin text gets
+     * one, matching how the two scripts are normally written.
+     * @param {string} current - the draft already in the composer.
+     * @param {string} text - the new transcript.
+     * @returns {string} the merged draft.
+     */
+    function joinDraft(current, text) {
+      if (current === '') return text
+      if (/\s$/u.test(current) || /^[\s，。！？、；：,.!?]/u.test(text)) return current + text
+      if (/[\u3400-\u9fff]$/u.test(current) || /^[\u3400-\u9fff]/u.test(text)) return current + text
+      return `${current} ${text}`
+    }
+
+    /**
      * Page-wide microphone + socket singleton. One instance serves every
      * mounted slot, and it keeps running across session switches.
      */
@@ -429,6 +446,11 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     function KoeinMic(props) {
       const [, force] = React.useState(0)
       const [pending, setPending] = React.useState(null)
+      // The live draft, read at insert time: setDraft replaces, so a transcript
+      // must be appended to whatever is already in the box.
+      const draft = props.useInput((state) => state.draft)
+      const draftRef = React.useRef(draft)
+      draftRef.current = draft
       React.useEffect(() => controller.subscribe(() => force((n) => n + 1)), [])
       React.useEffect(() => {
         if (props.sessionId) controller.setSession(String(props.sessionId))
@@ -443,7 +465,7 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
 
       React.useEffect(() => {
         if (pending === null) return undefined
-        props.inputActions.setDraft(pending.text)
+        props.inputActions.setDraft(joinDraft(draftRef.current || '', pending.text))
         if (!pending.submit) {
           setPending(null)
           return undefined
@@ -478,6 +500,9 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
           'data-status': status,
           'aria-label': title,
           title,
+          // Keep the composer's focus: taking it away on mousedown made a
+          // transcript appear only after clicking back into the input box.
+          onMouseDown: (event) => event.preventDefault(),
           onClick: () => controller.toggleDictate(),
           onContextMenu: (event) => {
             event.preventDefault()
@@ -640,6 +665,8 @@ registerProcessor('dsh-koein-capture', DshKoeinCapture)
     exports.inject = inject
     // Exported for the colour-mapping test; the host never calls it.
     exports.__statusFor = statusFor
+    // Exported for the draft-merge test; the host never calls it.
+    exports.__joinDraft = joinDraft
     return module.exports
   },
 })
